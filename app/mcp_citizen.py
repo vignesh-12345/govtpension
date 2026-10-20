@@ -22,6 +22,12 @@ citizen_mcp = Blueprint("citizen_mcp", __name__)
 
 MCP_VERSION = "2025-03-26"
 
+# Pilot rollout: only these blocks accept applications through the agent channel.
+# The Director specifically asked for a phased approach — the web portal still
+# accepts all six blocks; the MCP is gated to this subset until proven at scale.
+# To expand the pilot, add more block names here (must match schema.sql CHECK).
+MCP_PILOT_BLOCKS = ["Sonari", "Rajapara", "Borgaon", "Namti"]
+
 # ---------------------------------------------------------------------------
 # Tool manifest
 # ---------------------------------------------------------------------------
@@ -103,8 +109,12 @@ CITIZEN_TOOLS = [
                 },
                 "block": {
                     "type": "string",
-                    "enum": ["Sonari", "Rajapara", "Dhemaji Pathar", "Borgaon", "Namti", "Khelua"],
-                    "description": "Administrative block of the applicant's address",
+                    "enum": MCP_PILOT_BLOCKS,
+                    "description": (
+                        "Administrative block of the applicant's address. "
+                        "Note: the AI assistant channel currently covers only the pilot blocks. "
+                        "For other blocks, applicants must use the web portal."
+                    ),
                 },
                 "bank_account": {
                     "type": "string",
@@ -224,8 +234,9 @@ AGE-PROOF DOCUMENTS ACCEPTED (any one):
   • Voter ID (must show date of birth)
   • Pension Book from another government scheme
 
-BLOCKS SERVED:
-  {', '.join(BLOCKS)}
+BLOCKS COVERED BY THIS ASSISTANT (pilot):
+  {', '.join(MCP_PILOT_BLOCKS)}
+  (For other blocks, applicants must use the web portal at /apply)
 
 WHAT YOU NEED TO APPLY:
   1. 10-digit mobile number (receives OTP for web portal, or used as citizen ID here)
@@ -302,6 +313,14 @@ def _t_get_my_application(mobile):
 def _t_submit_application(mobile, args):
     from app import (get_db, validate_application, create_application,
                      active_application, UPLOAD_DIR, send_sms)
+    # Pilot gate — only enabled blocks can submit through the agent channel
+    block = args.get("block", "")
+    if block not in MCP_PILOT_BLOCKS:
+        return (False,
+                f"'{block}' is not yet covered by the AI assistant pilot. "
+                f"Pilot blocks: {', '.join(MCP_PILOT_BLOCKS)}. "
+                f"Please use the web portal at /apply for other blocks.")
+
     conn = get_db()
     cur = conn.cursor()
     existing = active_application(cur, mobile)
